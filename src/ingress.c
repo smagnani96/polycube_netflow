@@ -6,7 +6,7 @@
 #define IPPROTO_TCP     6
 #define IPPROTO_UDP     17
 
-#define FLOW_MAP_SIZE   100
+#define FLOW_MAP_SIZE   10
 
 enum CONNECTION_STATE {
     UP, SENT_CLOSE_FROM_ME, SENT_CLOSE_FROM_PARTNER, CLOSED
@@ -136,11 +136,11 @@ struct features {
     uint64_t packets;                    // Number of packets
     uint64_t bytes;                      // Number of bytes
     uint64_t flows;                      // Number of flows (if FYN then restarted)
-    uint8_t flags;                       // Flags if any
-    uint8_t  tos;                        // ToS value
     uint64_t start_timestamp;            // Connection begin timestamp
     uint64_t alive_timestamp;            // Last message received timestamp
-    uint8_t status;                      // To track reset & reuse
+    uint32_t flags;                       // Flags if any
+    uint16_t  tos;                        // ToS value
+    uint16_t status;                      // To track reset & reuse
 } __attribute__((packed));
 
 /*Flow identifier IPv4*/
@@ -163,10 +163,10 @@ struct flow_identifier_v6 {
 
 
 /*Flow map IPv4*/
-BPF_TABLE_SHARED("lru_hash", struct flow_identifier_v4, struct features, FLOW_MAP_V4, FLOW_MAP_SIZE);
+BPF_TABLE_SHARED("percpu_hash", struct flow_identifier_v4, struct features, FLOW_MAP_V4, FLOW_MAP_SIZE);
 
 /*Flow map IPv6*/
-BPF_TABLE_SHARED("lru_hash", struct flow_identifier_v6, struct features, FLOW_MAP_V6, FLOW_MAP_SIZE);
+BPF_TABLE_SHARED("percpu_hash", struct flow_identifier_v6, struct features, FLOW_MAP_V6, FLOW_MAP_SIZE);
 
 static __always_inline void push_ipv4(struct flow_identifier_v4 *key, uint16_t len, uint8_t tos) {
   uint64_t curr_time = pcn_get_time_epoch();
