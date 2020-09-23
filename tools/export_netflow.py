@@ -3,16 +3,19 @@
 
 import time, threading, argparse, requests, json, socket, os, numbers
 from datetime import datetime
+import copy
 
 VERSION 					= '0.9'
 POLYCUBED_ADDR 				= 'localhost'
 POLYCUBED_PORT 				= 9000
-REQUESTS_TIMEOUT 			= 10
+REQUESTS_TIMEOUT 			= 300
 OUTPUT_DIR 					= 'dump'
-FEATURES 					= ['Date first seen'.ljust(29), 'Duration(ns)'.ljust(15), 'Proto'.ljust(10), 'Src IP Addr:Port'.ljust(44), 'Dst IP Addr:Port'.ljust(44), 'Flags'.ljust(8), 'Tos'.ljust(5), 'Packets'.ljust(10), 'Bytes'.ljust(10), 'Flows'.ljust(8)]
+FEATURES 					= ['Date first seen'.ljust(29), 'Duration(ns)'.ljust(20), 'Proto'.ljust(10), 'Src IP Addr:Port'.ljust(44), 'Dst IP Addr:Port'.ljust(44), 'Flags'.ljust(8), 'Tos'.ljust(5), 'Packets'.ljust(10), 'Bytes'.ljust(10), 'Flows'.ljust(8)]
 INTERVAL 					= 300   		 	# seconds to wait before retrieving again the features, to have less just insert a decimal number like 0.01
 protocol_map 				= dict(			# map protocol integer value to name
 	[(6, "TCP"), (17, "UDP"), (1, "ICMP"), (58, "ICMPv6")])
+empty_feature 				= dict(
+	[('packets',0), ('bytes',0), ('flows',1), ('flags',0), ('tos',0), ('start_timestamp',0), ('alive_timestamp',0)])
 
 polycubed_endpoint = 'http://{}:{}/polycube/v1'
 counter = 0
@@ -85,15 +88,26 @@ def flagsToString(flags):
 	return f'{"C" if (flags & 0x80) else "."}{"E" if (flags & 0x40) else "."}{"U" if (flags & 0x20) else "."}{"A" if (flags & 0x10) else "."}{"P" if (flags & 0x8) else "."}{"R" if (flags & 0x4) else "."}{"S" if (flags & 0x2) else "."}{"F" if (flags & 0x1) else "."}'
 
 
+def sumCPUValues(values):
+	ret = copy.copy(empty_feature)
+	for value in values:
+		ret['packets'] += value['packets']
+		ret['bytes'] += value['bytes']
+		ret['flags'] = (ret['flags'] | value['flags'])
+		if value['alive_timestamp'] > ret['alive_timestamp']: ret['alive_timestamp'] = value['alive_timestamp']
+		if value['start_timestamp'] > ret['start_timestamp']: ret['start_timestamp'] = value['start_timestamp']
+		if value['flows'] > ret['flows'] : ret['flows'] = value['flows']
+		if value['tos'] > ret['tos'] : ret['tos'] = value['tos']
+	return ret
+
+
 def parseAndStore(entries, output_dir, counter):
-	data = []
-	flows = {}
 	fp = open(f"{output_dir}/dump{counter}.csv", 'w')
 	fp.write('\t'.join(x for x in FEATURES) + '\n')
 
 	for entry in entries:
 		key = entry['key']
-		value = entry['value']
+		value = sumCPUValues(entry['value'])
 		if isinstance(key['saddr'], numbers.Number):
 			saddr = f'{socket.inet_ntoa(key["saddr"].to_bytes(4, "little"))}:{socket.ntohs(key["sport"])}'
 			daddr = f'{socket.inet_ntoa(key["daddr"].to_bytes(4, "little"))}:{socket.ntohs(key["dport"])}'
@@ -101,7 +115,7 @@ def parseAndStore(entries, output_dir, counter):
 			saddr = f'{arrayToIPv6(key["saddr"])}.{socket.ntohs(key["sport"])}'
 			daddr = f'{arrayToIPv6(key["daddr"])}.{socket.ntohs(key["dport"])}'
 
-		fp.write(f'{str(timestampToDate(value["start_timestamp"])).ljust(29)}\t{str(value["alive_timestamp"] - value["start_timestamp"]).ljust(15)}\t{protocol_map[key["proto"]].ljust(10)}\t' 
+		fp.write(f'{str(timestampToDate(value["start_timestamp"])).ljust(29)}\t{str(value["alive_timestamp"] - value["start_timestamp"]).ljust(20)}\t{protocol_map[key["proto"]].ljust(10)}\t' 
 			f'{saddr.ljust(44)}\t'
 			f'{daddr.ljust(44)}\t'
 			f'{flagsToString(value["flags"]).ljust(8)}\t{str(value["tos"]).ljust(5)}\t{str(value["packets"]).ljust(10)}\t{str(value["bytes"]).ljust(10)}\t{str(value["flows"]).ljust(5)}\n')
